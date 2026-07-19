@@ -40,7 +40,10 @@ async def on_ready():
             if membro.id not in entrada:
                 entrada[membro.id] = agora_brasil()
             if membro.id not in tempo_total:
-                tempo_total[membro.id] = {"nome": membro.display_name, "segundos": 0}
+                tempo_total[membro.id]["segundos"] = max(
+    tempo_total[membro.id]["segundos"],
+    segundos
+)
 
     # Inicia as funções
     atualizar_tempo.start()
@@ -89,10 +92,16 @@ async def on_voice_state_update(membro, estado_antigo, estado_novo):
 @tasks.loop(minutes=1)
 async def atualizar_tempo():
     agora = agora_brasil()
+
     for id_membro, horario_entrada in entrada.items():
-        duracao = agora - horario_entrada
-        segundos = int(duracao.total_seconds())
-        tempo_total[id_membro]["segundos"] = segundos
+        if id_membro not in tempo_total:
+            continue
+
+        # Tempo desde a última entrada
+        segundos_atuais = int((agora - horario_entrada).total_seconds())
+
+        # Atualiza apenas o tempo atual da sessão
+        tempo_total[id_membro]["segundos"] = segundos_atuais
 
 # 🏆 Gera o ranking completo a cada 5 minutos
 @tasks.loop(minutes=5)
