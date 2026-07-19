@@ -1,5 +1,14 @@
-# config.py
-TOKEN = ""  # Depois vamos colocar o código aqui
-TEMPO_MINIMO = 600  # 10 minutos em segundos
-CANAL_ATIVIDADE = 0  # Troque pelo número do canal depois
-CANAL_LOGS = 0       # Troque pelo número do canal depois
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Token do Discord
+TOKEN = os.getenv("DISCORD_TOKEN")
+
+# Nome dos canais
+CANAL_ATIVIDADE = "atividade"
+CANAL_LOGS = "logs"
+
+# Tempo mínimo para contar presença (10 minutos)
+TEMPO_MINIMO = 600
