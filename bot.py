@@ -7,7 +7,7 @@ from discord.ext import commands, tasks
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 
-# 🕒 Horário do Brasil
+# 🕒 Horário do Brasil (sem avisos)
 def hora_brasil():
     return datetime.datetime.now(datetime.UTC) - datetime.timedelta(hours=3)
 
@@ -16,28 +16,30 @@ intents.voice_states = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Limpa tudo ao iniciar para não repetir registros
-entrada = {}
-tempo_total = {}
+# Armazena dados
+entrada = {}          # Quem está na sala e quando entrou
+tempo_total = {}      # Tempo acumulado de cada um
 
 @bot.event
 async def on_ready():
     print(f"✅ Bot conectado: {bot.user}")
-    print(f"🕒 Horário configurado para BRASIL")
+    print(f"🕒 Horário ajustado para Brasil")
 
     global canal_atividade, canal_logs
-    canal_atividade = discord.utils.get(bot.guilds[0].channels, name="atividade")
-    canal_logs = discord.utils.get(bot.guilds[0].channels, name="logs")
+    servidor = bot.guilds[0]
+    canal_atividade = discord.utils.get(servidor.channels, name="atividade")
+    canal_logs = discord.utils.get(servidor.channels, name="logs")
 
-    # 🔍 Detecta quem já está na sala ao ligar, sem enviar mensagem repetida
-    for membro in bot.guilds[0].members:
+    # 🟢 Ao ligar, identifica quem já está na sala sem repetir mensagem
+    for membro in servidor.members:
         if not membro.bot and membro.voice and membro.voice.channel:
-            entrada[membro.id] = hora_brasil()
+            if membro.id not in entrada:
+                entrada[membro.id] = hora_brasil()
             if membro.id not in tempo_total:
-                tempo_total[membro.id] = {"nome": membro.display_name, "tempo": 0}
+                tempo_total[membro.id] = {"nome": membro.display_name, "segundos": 0}
 
-    # Inicia as contagens
-    atualizar_tempo.start()
+    # Inicia contagem e ranking
+    contar_tempo.start()
     atualizar_ranking.start()
 
 @bot.event
@@ -46,53 +48,57 @@ async def on_voice_state_update(membro, antigo, novo):
         return
 
     agora = hora_brasil()
-    hora = agora.strftime("%H:%M")
+    hora_str = agora.strftime("%H:%M")
 
-    # 🟢 Entrou na chamada
+    # Entrou na chamada
     if antigo.channel is None and novo.channel is not None:
         if membro.id not in entrada:
             entrada[membro.id] = agora
             if membro.id not in tempo_total:
-                tempo_total[membro.id] = {"nome": membro.display_name, "tempo": 0}
+                tempo_total[membro.id] = {"nome": membro.display_name, "segundos": 0}
             if canal_atividade:
-                await canal_atividade.send(f"🟢 **{membro.display_name}** | Entrou às {hora}")
+                await canal_atividade.send(f"🟢 **{membro.display_name}** | Entrou às {hora_str}")
 
-    # 🔴 Saiu da chamada
+    # Saiu da chamada
     elif antigo.channel and novo.channel is None:
         if membro.id in entrada:
-            ini = entrada.pop(membro.id)
-            dur = agora - ini
-            segundos = int(dur.total_seconds())
-            tempo_total[membro.id]["tempo"] += segundos
-            min = segundos // 60
-            h = segundos // 3600
-            h_ini = ini.strftime("%H:%M")
+            inicio = entrada.pop(membro.id)
+            duracao = agora - inicio
+            segundos = int(duracao.total_seconds())
+            tempo_total[membro.id]["segundos"] += segundos
+            minutos = segundos // 60
+            horas = segundos // 3600
             if canal_atividade:
                 await canal_atividade.send(
-                    f"🔴 **{membro.display_name}** | Entrou às {h_ini} | Saiu às {hora} | ⏱️ {h}h {min%60}min"
+                    f"🔴 **{membro.display_name}** | Entrou às {inicio.strftime('%H:%M')} | Saiu às {hora_str} | ⏱️ {horas}h {minutos%60}min"
                 )
 
-# ⏱️ Atualiza tempo de quem está na sala a cada minuto
+# ⏱️ Conta o tempo de quem está na sala a cada 1 minuto
 @tasks.loop(minutes=1)
-async def atualizar_tempo():
+async def contar_tempo():
     agora = hora_brasil()
-    for id_membro, ini in entrada.items():
-        dur = agora - ini
-        segundos = int(dur.total_seconds())
-        tempo_total[id_membro]["tempo"] = (tempo_total[id_membro]["tempo"] // 60) * 60 + segundos
+    for membro_id, inicio in entrada.items():
+        duracao = agora - inicio
+        segundos = int(duracao.total_seconds())
+        tempo_total[membro_id]["segundos"] = segundos
 
-# 🏆 Atualiza ranking a cada 15 minutos
-@tasks.loop(minutes=15)
+# 🏆 Atualiza o ranking a cada 5 minutos (mais rápido para ver o resultado)
+@tasks.loop(minutes=5)
 async def atualizar_ranking():
     if not canal_logs or not tempo_total:
         return
-    ordem = sorted(tempo_total.values(), key=lambda x: x["tempo"], reverse=True)
-    agora = hora_brasil().strftime("%d/%m às %H:%M")
+
+    # Ordena do maior para o menor tempo
+    lista_ordenada = sorted(tempo_total.values(), key=lambda x: x["segundos"], reverse=True)
+    agora = hora_brasil().strftime("%d/%m/%Y às %H:%M")
+
     texto = f"🏆 **RANKING DE TEMPO - TROPA DO ENGUÇA** 🏆\n🕒 Atualizado: {agora}\n\n"
-    for pos, p in enumerate(ordem, 1):
-        h = p["tempo"] // 3600
-        m = (p["tempo"] % 3600) // 60
-        texto += f"{pos}º • {p['nome']} → {h}h {m}min\n"
+    for posicao, dado in enumerate(lista_ordenada, 1):
+        seg = dado["segundos"]
+        h = seg // 3600
+        m = (seg % 3600) // 60
+        texto += f"{posicao}º • {dado['nome']} → {h}h {m}min\n"
+
     await canal_logs.send(texto)
 
 if __name__ == "__main__":
@@ -100,6 +106,3 @@ if __name__ == "__main__":
         print("❌ ERRO: Token não encontrado!")
     else:
         bot.run(TOKEN)
-
-if __name__ == "__main__":
-    bot.run(TOKEN)
